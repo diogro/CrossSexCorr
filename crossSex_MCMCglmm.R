@@ -60,14 +60,14 @@ dat = data.frame(id = 1:n, Y, X)
 names(dat)[2:3] <- c("y1", "y2")
 
 # fixed effects model
-m1 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex, 
+m1 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1, 
          rcov = ~ us(trait):units,
          data = dat, 
          family = rep("gaussian", 2))
 summary(m1)
 
 # Adding the random effects
-m2 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex, 
+m2 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1, 
                random = ~ us(trait):id,  # Random effects for each trait by individual
                rcov = ~ us(trait):units, # Residual covariance structure
                data = dat, 
@@ -84,7 +84,7 @@ summary(m2)
 Ainv <- nadiv::makeAinv(ped)$Ainv
 
 # Update the MCMCglmm model to use the inverted A matrix
-m3 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex, 
+m3 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1, 
                random = ~ us(trait):id,  
                ginverse = list(id = Ainv),
                rcov = ~ us(trait):units, 
@@ -102,3 +102,29 @@ post_samples <- m3$VCV
 id_col = grep("id", colnames(post_samples))
 matrix(colMeans(post_samples[, id_col]), 2, 2) |> cov2cor()
 corrG
+
+# Now lets add the across sex correlations
+p = 2
+prior = list(R = list(R1 = list(V = diag(p), nu = 1.002),
+                      R2 = list(V = diag(p), nu = 1.002)),
+             G = list(G1 = list(V = diag(2*p) * 1.02, nu = 2*p+1)))
+dat$sex = factor(dat$sex)
+m4 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1, 
+               random = ~ us(trait:sex):id,  
+               ginverse = list(id = Ainv),
+               rcov = ~ us(trait:at.level(sex, "0")):units + 
+                        us(trait:at.level(sex, "1")):units, 
+               data = dat, 
+               family = rep("gaussian", 2),
+               prior = prior, 
+               verbose = FALSE)
+summary(m4)
+post_samples <- m4$VCV
+id_col = grep("id", colnames(post_samples))
+cG = matrix(colMeans(post_samples[, id_col]), 4, 4) |> cov2cor()
+
+pak::pkg_install("corrplot")
+library(corrplot)
+par(mfrow = c(1, 2))
+corrplot(cov2cor(corrG), is.corr = TRUE, main = "True Correlation")
+corrplot(cG, is.corr = TRUE, main = "Estimated Correlation")
