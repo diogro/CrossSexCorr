@@ -34,6 +34,7 @@ n = dim(A)[1]
 
 set.seed(123)
 p <- 4
+t <- 2
 sex <- sample(c(0, 1), n, replace = TRUE)
 age <- rnorm(n, mean = 50, sd = 10)
 x <- rnorm(n, mean = 0, sd = 1)
@@ -44,7 +45,7 @@ corrG <- matrix(c(
   0.8,  1.0,  0.3,  0.6,  
   0.6,  0.3,  1.0,  0.8,  
   0.3,  0.6,  0.8,  1.0   
-), nrow = 4, ncol = 4) + diag(0.1, 4) 
+), nrow = p, ncol = p) + diag(0.1, p) 
 #corrG <- cov2cor(corrG) # Check the correlation matrix
 # Ensure the matrix is positive definite
 if (!all(eigen(corrG)$values > 0)) {
@@ -56,14 +57,15 @@ rownames(a) <- 1:n
 
 beta_sex = c(0, 0, 1, 1) 
 beta_age = c(1, 1, 1, 1) * 0.2
-beta_x = rep(rnorm(2, mean = 0, sd = 1), 2)
+beta_x = rep(rnorm(t, mean = 0, sd = 1), p/t)
 
 betas <- rbind(beta_age, beta_sex, beta_x)
 X <- cbind(age, sex, x)
 
-Ytotal <- X %*% betas + a + rnorm(4, mean = 0, sd = 1)
+Ytotal <- X %*% betas + a + rnorm(p, mean = 0, sd = 1)
 Y <- Ytotal
-Y[sex == 1, 1:2] <- Y[sex == 1, 3:4]
+# carefull here if you increase the number of traits
+Y[sex == 1, 1:2] <- Y[sex == 1, 3:4] 
 Y <- Y[, 1:2]
 Y
 
@@ -75,7 +77,7 @@ names(dat)[2:3] <- c("y1", "y2")
 m1 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1, 
          rcov = ~ us(trait):units,
          data = dat, 
-         family = rep("gaussian", 2))
+         family = rep("gaussian", t))
 summary(m1)
 
 # Adding the random effects
@@ -83,10 +85,10 @@ m2 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1,
                random = ~ us(trait):id,  # Random effects for each trait by individual
                rcov = ~ us(trait):units, # Residual covariance structure
                data = dat, 
-               family = rep("gaussian", 2),
+               family = rep("gaussian", t),
                prior = list(
-                 R = list(V = diag(2), nu = 2),  # Residual prior
-                 G = list(G1 = list(V = diag(2), nu = 2))  # Random effect prior
+                 R = list(V = diag(t), nu = t),  # Residual prior
+                 G = list(G1 = list(V = diag(t), nu = t))  # Random effect prior
                ),
                verbose = FALSE)
 summary(m2)
@@ -99,10 +101,10 @@ m3 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1,
                ginverse = list(id = Ainv),
                rcov = ~ us(trait):units, 
                data = dat, 
-               family = rep("gaussian", 2),
+               family = rep("gaussian", t),
                prior = list(
-                 R = list(V = diag(2), nu = 2),  # Residual prior
-                 G = list(G1 = list(V = diag(2), nu = 2))  # Random effect prior
+                 R = list(V = diag(t), nu = t),  # Residual prior
+                 G = list(G1 = list(V = diag(t), nu = t))  # Random effect prior
                ), 
                verbose = FALSE)
 summary(m3) 
@@ -114,10 +116,10 @@ matrix(colMeans(post_samples[, id_col]), 2, 2) |> cov2cor()
 corrG
 
 # Now lets add the across sex correlations
-p = 2
-prior = list(R = list(R1 = list(V = diag(p), nu = 1.002),
-                      R2 = list(V = diag(p), nu = 1.002)),
-             G = list(G1 = list(V = diag(2*p) * 1.02, nu = 2*p+1)))
+
+prior = list(R = list(R1 = list(V = diag(t), nu = 1.002),
+                      R2 = list(V = diag(t), nu = 1.002)),
+             G = list(G1 = list(V = diag(p) * 1.02, nu = p+1)))
 dat$sex = factor(dat$sex)
 m4 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1, 
                random = ~ us(trait:sex):id,  
@@ -125,13 +127,13 @@ m4 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1,
                rcov = ~ us(trait:at.level(sex, "0")):units + 
                         us(trait:at.level(sex, "1")):units, 
                data = dat, 
-               family = rep("gaussian", 2),
+               family = rep("gaussian", t),
                prior = prior, 
                verbose = FALSE)
 summary(m4)
 post_samples <- m4$VCV
 id_col = grep("id", colnames(post_samples))
-cG = matrix(colMeans(post_samples[, id_col]), 4, 4) |> cov2cor()
+cG = matrix(colMeans(post_samples[, id_col]), p, p) |> cov2cor()
 
 
 corrPlot = function(M, title = ""){
