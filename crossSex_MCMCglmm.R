@@ -1,27 +1,48 @@
-library(MCMCglmm)
-library(tidyverse)
-library(AtchleyMice)
-library(sommer)
-if(!require(mvtnorm)){install.packages("mvtnorm"); library(mvtnorm)}
-if(!require(nadiv)){install.packages("nadiv"); library(nadiv)}
-if(!require(tictoc)){install.packages("tictoc"); library(tictoc)}
-if(!require(pedtools)){install.packages("pedtools"); library(pedtools)}
+if(!require(pak)){install.packages("pak")}
+if(!require(tidyverse)){pak::pkg_install("tidyverse"); library(tidyverse)}
+if(!require(MCMCglmm)){pak::pkg_install("MCMCglmm"); library(MCMCglmm)}
+if(!require(mvtnorm)){pak::pkg_install("mvtnorm"); library(mvtnorm)}
+if(!require(nadiv)){pak::pkg_install("nadiv"); library(nadiv)}
+if(!require(tictoc)){pak::pkg_install("tictoc"); library(tictoc)}
+if(!require(pedtools)){pak::pkg_install("pedtools"); library(pedtools)}
 if(!require(patchwork)){pak::pkg_install("patchwork"); library(patchwork)}
 if(!require(cowplot)){pak::pkg_install("cowplot"); library(cowplot)}
 if(!require(ggthemes)){pak::pkg_install("ggthemes"); library(ggthemes)}
 if(!require(RColorBrewer)){pak::pkg_install("RColorBrewer"); library(RColorBrewer)}
-if(!require(corrplot)){install.packages("corrplot"); library(corrplot)}
+if(!require(corrplot)){pak::pkg_install("corrplot"); library(corrplot)}
+
+# Nice matrix plotting function
+corrPlot = function(M, title = ""){
+melted_cormat <- reshape2::melt(M)
+    heatmap = ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
+        geom_tile() +
+        scale_fill_gradientn(colours=brewer.pal(11, "RdBu"), 
+                             limits = c(-1, 1), 
+                              breaks=c(-1, -0.5, 0 , 0.5, 1))  + 
+        labs(x = "Traits", y = "") +
+        theme_tufte() + ggtitle(title) + 
+        theme(legend.position = "bottom",
+              legend.key.width= unit(1.5, 'cm'), 
+              legend.title = element_blank(),
+              plot.title = element_text(size = 14),
+              axis.title = element_text(size = 12),
+              axis.text.y = element_text(size = 6),
+              axis.text.x = element_text(size = 6, angle = 90))
+    heatmap
+}
+
+
 
 # Simulate some data
 
-
-n = 1000
+n = 100
 ped = randomPed(n, 10, seed = 2)
 #plot(ped)
 ped = data.frame(ID = ped$ID, sire = ped$FIDX, dam = ped$MIDX)
 ped = prepPed(ped)
 A <- as.matrix(nadiv::makeA(ped))
 Ainv <- nadiv::makeAinv(ped)$Ainv
+# library(AtchleyMice)
 # ped <- mice_pedigree
 # F6_ID = mice_info$F6$ID
 # A = as.matrix(nadiv::makeA(ped))
@@ -116,7 +137,16 @@ matrix(colMeans(post_samples[, id_col]), 2, 2) |> cov2cor()
 corrG
 
 # Now lets add the across sex correlations
+# This is done by doubling the dimensionality of the G matrix, such that 
+# each level of the sex variable has its own G matrix on the block diagonal,
+# and the between-sex correlations are estimated outside the block diagonal.
 
+# Because no individual is of both sexes, the residual structure is just the
+# block diagonal elements, so there are two separate residual matrices, 
+# one per sex. 
+
+# This difference in the genetic and covariance strucutre is reflected in the
+# prior specifications: one big G matrix and two small R matrices.
 prior = list(R = list(R1 = list(V = diag(t), nu = 1.002),
                       R2 = list(V = diag(t), nu = 1.002)),
              G = list(G1 = list(V = diag(p) * 1.02, nu = p+1)))
@@ -134,26 +164,6 @@ summary(m4)
 post_samples <- m4$VCV
 id_col = grep("id", colnames(post_samples))
 cG = matrix(colMeans(post_samples[, id_col]), p, p) |> cov2cor()
-
-
-corrPlot = function(M, title = ""){
-melted_cormat <- reshape2::melt(M)
-    heatmap = ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
-        geom_tile() +
-        scale_fill_gradientn(colours=brewer.pal(11, "RdBu"), 
-                             limits = c(-1, 1), 
-                              breaks=c(-1, -0.5, 0 , 0.5, 1))  + 
-        labs(x = "Traits", y = "") +
-        theme_tufte() + ggtitle(title) + 
-        theme(legend.position = "bottom",
-              legend.key.width= unit(1.5, 'cm'), 
-              legend.title = element_blank(),
-              plot.title = element_text(size = 14),
-              axis.title = element_text(size = 12),
-              axis.text.y = element_text(size = 6),
-              axis.text.x = element_text(size = 6, angle = 90))
-    heatmap
-}
 
 corrPlot(cov2cor(corrG),  "True Correlations") +
   corrPlot(cG, "Estimated Correlation")  + 
