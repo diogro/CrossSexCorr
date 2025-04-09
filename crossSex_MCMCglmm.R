@@ -6,26 +6,37 @@ if(!require(mvtnorm)){install.packages("mvtnorm"); library(mvtnorm)}
 if(!require(nadiv)){install.packages("nadiv"); library(nadiv)}
 if(!require(tictoc)){install.packages("tictoc"); library(tictoc)}
 if(!require(pedtools)){install.packages("pedtools"); library(pedtools)}
+if(!require(patchwork)){pak::pkg_install("patchwork"); library(patchwork)}
+if(!require(cowplot)){pak::pkg_install("cowplot"); library(cowplot)}
+if(!require(ggthemes)){pak::pkg_install("ggthemes"); library(ggthemes)}
+if(!require(RColorBrewer)){pak::pkg_install("RColorBrewer"); library(RColorBrewer)}
+if(!require(corrplot)){install.packages("corrplot"); library(corrplot)}
 
 # Simulate some data
 
+
+n = 1000
+ped = randomPed(n, 10, seed = 2)
+#plot(ped)
+ped = data.frame(ID = ped$ID, sire = ped$FIDX, dam = ped$MIDX)
+ped = prepPed(ped)
+A <- as.matrix(nadiv::makeA(ped))
+Ainv <- nadiv::makeAinv(ped)$Ainv
+# ped <- mice_pedigree
+# F6_ID = mice_info$F6$ID
+# A = as.matrix(nadiv::makeA(ped))
+# Acols = match(F6_ID, colnames(A))
+# A <- A[Acols, Acols]
+# Ainv <- nadiv::makeAinv(ped)$Ainv[Acols, Acols]
+
+L_A = chol(A)
+n = dim(A)[1]
+
 set.seed(123)
-n <- 100
 p <- 4
 sex <- sample(c(0, 1), n, replace = TRUE)
 age <- rnorm(n, mean = 50, sd = 10)
 x <- rnorm(n, mean = 0, sd = 1)
-a <- rnorm(n, mean = 0, sd = 1)
-
-ped = randomPed(n, 10, seed = 2)
-plot(ped)
-ped = data.frame(ID = ped$ID, sire = ped$FIDX, dam = ped$MIDX)
-ped = prepPed(ped)
-A <- as.matrix(nadiv::makeA(ped))
-#ped <- mice_pedigree
-#F6_ID = mice_info$F6$ID
-#A <- as.matrix(nadiv::makeA(ped))[F6_ID, F6_ID]
-L_A = chol(A)
 
 # 4x4 correlation matrix
 corrG <- matrix(c(
@@ -41,8 +52,9 @@ if (!all(eigen(corrG)$values > 0)) {
 }
 
 a <- t(L_A) %*% matrix(rnorm(n*p), n, p) %*% chol(corrG)
+rownames(a) <- 1:n
 
-beta_sex = c(0, 0, 1, 1) * 1/2
+beta_sex = c(0, 0, 1, 1) 
 beta_age = c(1, 1, 1, 1) * 0.2
 beta_x = rep(rnorm(2, mean = 0, sd = 1), 2)
 
@@ -80,9 +92,7 @@ m2 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1,
 summary(m2)
 
 # Adding the random effects covariance structure
-# Invert the A matrix and convert it to sparse format
-Ainv <- nadiv::makeAinv(ped)$Ainv
-
+colnames(Ainv) <- rownames(Ainv) <- dat$id
 # Update the MCMCglmm model to use the inverted A matrix
 m3 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1, 
                random = ~ us(trait):id,  
@@ -95,7 +105,7 @@ m3 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1,
                  G = list(G1 = list(V = diag(2), nu = 2))  # Random effect prior
                ), 
                verbose = FALSE)
-summary(m3)
+summary(m3) 
 
 # extracting the posterior samples for the random effects
 post_samples <- m3$VCV
@@ -123,8 +133,31 @@ post_samples <- m4$VCV
 id_col = grep("id", colnames(post_samples))
 cG = matrix(colMeans(post_samples[, id_col]), 4, 4) |> cov2cor()
 
-pak::pkg_install("corrplot")
-library(corrplot)
+
+corrPlot = function(M, title = ""){
+melted_cormat <- reshape2::melt(M)
+    heatmap = ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
+        geom_tile() +
+        scale_fill_gradientn(colours=brewer.pal(11, "RdBu"), 
+                             limits = c(-1, 1), 
+                              breaks=c(-1, -0.5, 0 , 0.5, 1))  + 
+        labs(x = "Traits", y = "") +
+        theme_tufte() + ggtitle(title) + 
+        theme(legend.position = "bottom",
+              legend.key.width= unit(1.5, 'cm'), 
+              legend.title = element_blank(),
+              plot.title = element_text(size = 14),
+              axis.title = element_text(size = 12),
+              axis.text.y = element_text(size = 6),
+              axis.text.x = element_text(size = 6, angle = 90))
+    heatmap
+}
+
+corrPlot(cov2cor(corrG),  "True Correlations") +
+  corrPlot(cG, "Estimated Correlation")  + 
+  plot_layout(guides = "collect") & 
+  theme(legend.position = 'bottom', plot.title = element_text(family = "serif"))
+
 par(mfrow = c(1, 2))
-corrplot(cov2cor(corrG), is.corr = TRUE, main = "True Correlation")
-corrplot(cG, is.corr = TRUE, main = "Estimated Correlation")
+corrplot.mixed(cov2cor(corrG), main = "True Correlation", upper = "ellipse")
+corrplot.mixed(cG, main = "Estimated Correlation", upper = "ellipse")
