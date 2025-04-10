@@ -31,8 +31,6 @@ melted_cormat <- reshape2::melt(M)
     heatmap
 }
 
-
-
 # Simulate some data
 
 n = 100
@@ -54,8 +52,8 @@ L_A = chol(A)
 n = dim(A)[1]
 
 set.seed(123)
-p <- 4
 t <- 2
+p <- t*2
 sex <- sample(c(0, 1), n, replace = TRUE)
 age <- rnorm(n, mean = 50, sd = 10)
 x <- rnorm(n, mean = 0, sd = 1)
@@ -90,15 +88,22 @@ Y[sex == 1, 1:2] <- Y[sex == 1, 3:4]
 Y <- Y[, 1:2]
 Y
 
-lm(Y ~ x + age + sex)
+sex %*% matrix(beta_sex, ncol  =4) 
+
+
 dat = data.frame(id = 1:n, Y, X)
-names(dat)[2:3] <- c("y1", "y2")
+names(dat) <- c("id", "y1", "y2", "age", "sex", "x")
+dat$age = dat$age - mean(dat$age)
+dat$x = dat$x - mean(dat$x)
+
+lm(Y ~ x + age + sex, data = dat)
 
 # fixed effects model
 m1 <- MCMCglmm(cbind(y1, y2) ~ trait + trait:x + trait:age + trait:sex - 1, 
          rcov = ~ us(trait):units,
          data = dat, 
-         family = rep("gaussian", t))
+         family = rep("gaussian", t),
+         verbose = FALSE)
 summary(m1)
 
 # Adding the random effects
